@@ -45,5 +45,16 @@ python3 server.py --no-browser         # don't auto-open a browser
   `~/.config/replanish/config.json` and used on the next launch. (A `--plans-dir`
   argument overrides the saved setting for that run only.)
 
-The server is read-only, binds to `127.0.0.1` only, and guards against path
-traversal (it will only ever read `.md` files inside the configured plans directory).
+### Deleting plans
+
+Deletion is **permanent** (`os.remove`) — there is no trash or undo. Every delete
+asks for confirmation showing how many plans will be removed.
+
+- **Delete** (reading-pane toolbar) removes the plan you're currently viewing.
+- **Bulk delete**: tick the checkbox on any rows, then **Delete selected** in the
+  bar above the list.
+- **Delete plans from the last N days** (5 / 10 / 30) removes every plan *modified
+  within* that window.
+
+The server binds to `127.0.0.1` only and guards against path traversal (it will
+only ever read or delete `.md` files inside the configured plans directory).

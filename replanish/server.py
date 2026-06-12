@@ -250,19 +250,29 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_json({"error": "not found"}, status=404)
 
-    def do_POST(self):
-        global PLANS_DIR
-        parsed = urlparse(self.path)
-        if parsed.path != "/api/config":
-            self._send_json({"error": "not found"}, status=404)
-            return
-
+    def _read_json_body(self):
+        """Return (data, None) or (None, error_message)."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length else b""
-            data = json.loads(body or b"{}")
+            return json.loads(body or b"{}"), None
         except (ValueError, OSError):
-            self._send_json({"error": "invalid request body"}, status=400)
+            return None, "invalid request body"
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/config":
+            self._handle_set_config()
+        elif parsed.path == "/api/delete":
+            self._handle_delete()
+        else:
+            self._send_json({"error": "not found"}, status=404)
+
+    def _handle_set_config(self):
+        global PLANS_DIR
+        data, err = self._read_json_body()
+        if err:
+            self._send_json({"error": err}, status=400)
             return
 
         value = (data.get("plans_dir") or "").strip()
@@ -283,6 +293,33 @@ class Handler(BaseHTTPRequestHandler):
             "default_plans_dir": str(DEFAULT_PLANS_DIR),
             "saved": saved,
         })
+
+    def _handle_delete(self):
+        """Permanently delete one or more plans by slug. Path-traversal safe."""
+        data, err = self._read_json_body()
+        if err:
+            self._send_json({"error": err}, status=400)
+            return
+
+        slugs = data.get("slugs")
+        if not isinstance(slugs, list) or not slugs:
+            self._send_json({"error": "slugs (non-empty list) is required"},
+                            status=400)
+            return
+
+        deleted, failed = [], []
+        for slug in slugs:
+            safe = resolve_slug(slug) if isinstance(slug, str) else None
+            if safe is None:
+                failed.append({"slug": slug, "error": "invalid or not found"})
+                continue
+            try:
+                os.remove(safe)
+                deleted.append(slug)
+            except OSError as e:
+                failed.append({"slug": slug, "error": str(e)})
+
+        self._send_json({"deleted": deleted, "failed": failed})
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))

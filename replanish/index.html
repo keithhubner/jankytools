@@ -43,6 +43,8 @@
   }
   button:hover { border-color: var(--accent); }
   button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  button.danger { border-color: #7a3b3b; color: #e57373; }
+  button.danger:hover { background: #3a2727; border-color: #e57373; }
 
   main { display: flex; flex: 1; min-height: 0; }
 
@@ -60,12 +62,22 @@
   .quick button { padding: 4px 9px; font-size: 12px; }
   #count { font-size: 12px; color: var(--muted); padding: 8px 12px; }
 
+  #bulkbar {
+    display: none; align-items: center; gap: 8px; padding: 8px 12px;
+    background: var(--panel-2); border-bottom: 1px solid var(--border);
+  }
+  #bulkbar #bulkcount { flex: 1; font-size: 13px; color: var(--muted); }
+  #bulkbar button { padding: 4px 9px; font-size: 12px; }
+
   #list { overflow-y: auto; flex: 1; min-height: 0; }
   .item {
     padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer;
+    display: flex; gap: 10px; align-items: flex-start;
   }
   .item:hover { background: var(--panel-2); }
   .item.selected { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: 9px; }
+  .item .sel { margin: 3px 0 0; flex: 0 0 auto; cursor: pointer; accent-color: var(--accent); }
+  .item .body { flex: 1; min-width: 0; }
   .item .t { font-weight: 600; margin-bottom: 3px; }
   .item .t.untitled { font-weight: 400; font-style: italic; color: var(--muted); }
   .item .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
@@ -165,8 +177,21 @@
             </select>
           </div>
         </div>
+        <div>
+          <label>Delete plans from the last…</label>
+          <div class="row quick">
+            <button class="danger" data-del-days="5">5 days</button>
+            <button class="danger" data-del-days="10">10 days</button>
+            <button class="danger" data-del-days="30">30 days</button>
+          </div>
+        </div>
       </div>
       <div id="count"></div>
+      <div id="bulkbar">
+        <span id="bulkcount"></span>
+        <button id="bulkClear">Clear</button>
+        <button id="bulkDelete" class="danger">Delete selected</button>
+      </div>
       <div id="list"></div>
     </aside>
 
@@ -176,6 +201,7 @@
         <button id="copy">Copy</button>
         <button id="copyPath">Copy path</button>
         <button id="toggleRaw">Raw</button>
+        <button id="delete" class="danger">Delete</button>
       </div>
       <div id="content" class="empty">Select a plan to read it.</div>
     </section>
@@ -208,6 +234,7 @@
   var bySlug = {};
   var selected = null;     // currently open plan object
   var showRaw = false;
+  var selectedSlugs = new Set(); // checkbox selection for bulk delete
 
   var el = function (id) { return document.getElementById(id); };
 
@@ -297,19 +324,35 @@
       div.className = "item" + (selected && selected.slug === p.slug ? " selected" : "");
       div.dataset.slug = p.slug;
 
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "sel";
+      cb.checked = selectedSlugs.has(p.slug);
+      cb.title = "Select for bulk delete";
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        if (cb.checked) selectedSlugs.add(p.slug); else selectedSlugs.delete(p.slug);
+        updateBulkBar();
+      });
+      div.appendChild(cb);
+
+      var body = document.createElement("div");
+      body.className = "body";
+
       var t = document.createElement("div");
       t.className = "t" + (p.has_title ? "" : " untitled");
       t.textContent = p.title;
-      div.appendChild(t);
+      body.appendChild(t);
 
       var meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML = "<span>" + fmtDate(p.mtime_iso) + "</span>"
                      + "<span>" + fmtSize(p.size) + "</span>"
                      + (p._bodyHit ? "<span class='badge'>matches text</span>" : "");
-      div.appendChild(meta);
+      body.appendChild(meta);
 
-      div.addEventListener("click", function () { open(p.slug); });
+      body.addEventListener("click", function () { open(p.slug); });
+      div.appendChild(body);
       list.appendChild(div);
     });
 
@@ -317,6 +360,43 @@
     el("count").textContent = items.length === total
       ? total + " plan" + (total === 1 ? "" : "s")
       : items.length + " of " + total + " plans";
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    var n = selectedSlugs.size;
+    el("bulkbar").style.display = n ? "flex" : "none";
+    el("bulkcount").textContent = n + " selected";
+  }
+
+  // --- deletion -------------------------------------------------------------
+  function deletePlans(slugs, what) {
+    slugs = slugs.filter(function (s) { return bySlug[s]; }); // only existing
+    if (!slugs.length) { toast("Nothing to delete"); return; }
+    var n = slugs.length;
+    var msg = "Permanently delete " + n + " plan" + (n === 1 ? "" : "s")
+            + (what ? " " + what : "") + "?\n\nThis cannot be undone.";
+    if (!window.confirm(msg)) return;
+
+    fetch("/api/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slugs: slugs }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var done = (res.deleted || []);
+        done.forEach(function (s) { selectedSlugs.delete(s); });
+        if (selected && done.indexOf(selected.slug) !== -1) {
+          selected = null;
+          location.hash = "";
+        }
+        return load().then(function () {
+          var failed = (res.failed || []).length;
+          toast("Deleted " + done.length + (failed ? ", " + failed + " failed" : ""));
+        });
+      })
+      .catch(function () { toast("Delete failed"); });
   }
 
   // --- reading pane ---------------------------------------------------------
@@ -376,6 +456,11 @@
         plans = data.plans || [];
         bySlug = {};
         plans.forEach(function (p) { bySlug[p.slug] = p; });
+
+        // Drop any checkbox selections whose files no longer exist.
+        Array.from(selectedSlugs).forEach(function (s) {
+          if (!bySlug[s]) selectedSlugs.delete(s);
+        });
 
         // Re-bind current selection (it may have changed on disk).
         if (selected) {
@@ -438,8 +523,29 @@
     showRaw = !showRaw;
     renderContent();
   });
+  el("delete").addEventListener("click", function () {
+    if (selected) deletePlans([selected.slug], "“" + selected.title + "”");
+  });
   el("refresh").addEventListener("click", load);
   window.addEventListener("focus", load); // keep mtimes fresh when returning
+
+  // --- bulk + time-based deletion -------------------------------------------
+  el("bulkClear").addEventListener("click", function () {
+    selectedSlugs.clear();
+    renderList();
+  });
+  el("bulkDelete").addEventListener("click", function () {
+    deletePlans(Array.from(selectedSlugs), "(selected)");
+  });
+  document.querySelectorAll("[data-del-days]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var days = parseInt(b.dataset.delDays, 10);
+      var cutoff = Date.now() / 1000 - days * 86400;
+      var slugs = plans.filter(function (p) { return p.mtime >= cutoff; })
+                       .map(function (p) { return p.slug; });
+      deletePlans(slugs, "modified in the last " + days + " days");
+    });
+  });
 
   // --- settings modal -------------------------------------------------------
   var defaultDir = "";
