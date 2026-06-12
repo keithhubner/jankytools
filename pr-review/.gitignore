@@ -1,0 +1,15 @@
+# Generated output / runtime state (regenerated on each run)
+pr-review-summary.html
+pr-review-summary.md
+pr-review-cache.json
+pr-review-notes.json
+pr-review-ignored.json
+pr-review-history.json
+
+# Logs, pid and port files
+*.log
+*.pid
+*.port
+
+# Local Claude permission settings
+.claude/

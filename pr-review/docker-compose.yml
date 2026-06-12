@@ -1,0 +1,19 @@
+services:
+  pr-review:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ~/.config/gh:/root/.config/gh:ro
+      - ~/.claude:/root/.claude
+      - pr-review-data:/app/data
+    environment:
+      - PORT=8080
+      # GitHub auth: set GH_TOKEN if the mounted gh config doesn't work
+      # - GH_TOKEN=${GH_TOKEN}
+      # Set SKIP_INITIAL_RUN=1 to start the server without running the script
+      # - SKIP_INITIAL_RUN=1
+    restart: unless-stopped
+
+volumes:
+  pr-review-data:
