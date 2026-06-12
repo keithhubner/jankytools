@@ -30,6 +30,49 @@ python3 server.py --plans-dir DIR      # override the plans directory for this r
 python3 server.py --no-browser         # don't auto-open a browser
 ```
 
+## Run as a background service (systemd)
+
+To keep Replanish running in the background (and restart it on failure / at login),
+install it as a **systemd user service** — the same way the sibling `pr-review` app
+is run.
+
+Create `~/.config/systemd/user/replanish-server.service`:
+
+```ini
+[Unit]
+Description=Replanish — browse Claude Code plan files
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/keithhubner/jankytools/replanish
+ExecStart=/usr/bin/python3 /home/keithhubner/jankytools/replanish/server.py --no-browser
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+`--no-browser` is important here: as a background service it should not try to spawn
+a browser. Then enable and start it:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now replanish-server.service
+```
+
+It now serves on `http://127.0.0.1:8799` — open that in your browser any time.
+To have it keep running while you're logged out: `loginctl enable-linger $USER`.
+
+Useful commands:
+
+```sh
+systemctl --user status replanish-server.service     # check it's running
+journalctl --user -u replanish-server.service -f      # follow the logs
+systemctl --user restart replanish-server.service     # restart after changes
+```
+
 ## Use
 
 - **Search** filters by filename, title, and full body text as you type.
