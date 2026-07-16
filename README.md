@@ -13,3 +13,7 @@ subdirectory with its own README.
   awaiting your review: pulls them via `gh`, runs a short Claude analysis per
   diff (risk, summary, checks), adds CI and Checkmarx findings, and renders a
   filterable HTML page. Run: `python3 pr-review/pr-review-server.py`
+
+## License
+
+MIT — see [LICENSE](LICENSE).

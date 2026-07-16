@@ -45,8 +45,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/keithhubner/jankytools/replanish
-ExecStart=/usr/bin/python3 /home/keithhubner/jankytools/replanish/server.py --no-browser
+WorkingDirectory=/home/youruser/jankytools/replanish
+ExecStart=/usr/bin/python3 /home/youruser/jankytools/replanish/server.py --no-browser
 Restart=on-failure
 RestartSec=5
 
