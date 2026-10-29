@@ -1,0 +1,10 @@
+[Desktop Entry]
+# Template: install.sh fills in @DIR@ and copies this to ~/.local/share/applications/.
+Type=Application
+Name=Noggin
+Comment=A simple mind map tool
+Exec=@DIR@/launch.sh
+Icon=@DIR@/icon.svg
+Terminal=false
+Categories=Utility;
+Keywords=mind;map;mindmap;brainstorm;outline;

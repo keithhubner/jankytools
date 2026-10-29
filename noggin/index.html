@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noggin</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  /* Same light-by-default palette as pokerface and momento, with the dark
+     theme one click away and remembered in localStorage. */
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --surface-2: #f0eee9;
+    --border: #e2dfd7;
+    --border-strong: #cfcabd;
+    --ink: #22252a;
+    --ink-2: #474d55;
+    --muted: #767d86;
+    --accent: #0f7a56;
+    --accent-weak: #e6f2ec;
+    --hot: #9e2b2b;
+    --dot: #dcd8ce;
+    --match: #fbeeb0;
+    --shadow: 0 1px 2px rgba(22,25,30,.06), 0 4px 14px rgba(22,25,30,.05);
+    --shadow-sm: 0 1px 2px rgba(22,25,30,.07);
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171b;
+    --surface: #1d2025;
+    --surface-2: #24282e;
+    --border: #333941;
+    --border-strong: #454c56;
+    --ink: #e9eaec;
+    --ink-2: #c2c7ce;
+    --muted: #949ba5;
+    --accent: #4fc196;
+    --accent-weak: #16322a;
+    --hot: #ea8079;
+    --dot: #262a30;
+    --match: #4d4216;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 16px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--ink);
+    display: grid; grid-template-columns: 250px 1fr; grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+  body.no-sidebar { grid-template-columns: 0 1fr; }
+  body.no-sidebar #sidebar { display: none; }
+
+  button {
+    font: inherit; font-size: 14px; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--border-strong); color: var(--ink); }
+  button.danger:hover { color: var(--hot); border-color: var(--hot); }
+
+  header {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 17px; margin: 0 10px 0 4px; letter-spacing: .2px; }
+  header .spacer { flex: 1; }
+  #status { font-size: 13px; color: var(--muted); min-width: 70px; text-align: right; }
+  #status.error { color: var(--hot); }
+  .menu { position: relative; }
+  .menu-items {
+    display: none; position: absolute; right: 0; top: calc(100% + 4px);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: var(--shadow); padding: 4px; z-index: 20;
+    min-width: 240px;
+  }
+  .menu.open .menu-items { display: block; }
+  .menu-items button {
+    display: block; width: 100%; text-align: left; border: 0; background: none;
+  }
+  .menu-items button:hover { background: var(--surface-2); }
+  .menu-items button kbd { float: right; margin-left: 16px; }
+  .menu-items hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+
+  #sidebar {
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #sidebar .top { padding: 12px; border-bottom: 1px solid var(--border); }
+  #sidebar .top button { width: 100%; }
+  #maps { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  #maps li {
+    padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  #maps li:hover { background: var(--surface-2); }
+  #maps li.active { background: var(--accent-weak); }
+  #maps li .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #maps li .m { display: block; font-size: 12px; color: var(--muted); }
+
+  #canvas {
+    position: relative; overflow: hidden; cursor: grab; touch-action: none;
+    background-color: var(--bg);
+    background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  #canvas.panning { cursor: grabbing; }
+  #canvas:focus { outline: none; }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  #edges path { fill: none; stroke-width: 2.2; stroke-linecap: round; }
+
+  .node {
+    /* max-content: inside the zero-width #world an absolute box would
+       otherwise shrink to one word per line. max-width still wraps. */
+    position: absolute; width: max-content; max-width: 260px; padding: 6px 12px;
+    background: var(--surface); color: var(--ink);
+    border: 2px solid var(--branch, var(--border-strong)); border-radius: 10px;
+    box-shadow: var(--shadow-sm); white-space: pre-wrap; overflow-wrap: anywhere;
+    cursor: default; user-select: none; font-size: 15px; min-width: 40px;
+    min-height: 34px;
+  }
+  .node.root {
+    font-size: 19px; font-weight: 600; padding: 10px 20px; border-radius: 14px;
+    border-color: var(--ink); max-width: 320px;
+  }
+  .node.depth1 { font-weight: 550; }
+  .node.depth3plus { font-size: 14px; padding: 4px 10px; }
+  .node.selected { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .node.editing { user-select: text; cursor: text; outline: 3px solid var(--accent); outline-offset: 2px; }
+  .node:empty::before { content: "\200b"; }
+  .node.editing:empty::before { content: "Type an idea…"; color: var(--muted); }
+  .node.drop-target { outline: 3px dashed var(--accent); outline-offset: 3px; }
+  .node.dragging { opacity: .75; pointer-events: none; z-index: 10; box-shadow: var(--shadow); }
+  .node:focus { outline: 3px solid var(--accent); }
+
+  .fold {
+    position: absolute; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--branch, var(--border-strong));
+    font-size: 11px; line-height: 16px; text-align: center; color: var(--ink-2);
+    cursor: pointer; user-select: none; font-weight: 600;
+  }
+  .fold:hover { background: var(--surface-2); }
+
+  #help {
+    position: absolute; right: 14px; bottom: 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+    padding: 12px 16px; font-size: 13px; color: var(--ink-2); display: none;
+  }
+  #help.open { display: block; }
+  #ctx {
+    position: fixed; display: none; z-index: 30; min-width: 210px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: var(--shadow); padding: 4px;
+  }
+  #ctx.open { display: block; }
+
+  .node.match { background: var(--match); }
+  .node.match-current { box-shadow: 0 0 0 4px var(--match), var(--shadow); }
+
+  #find {
+    position: absolute; top: 12px; right: 14px; z-index: 25; display: none;
+    align-items: center; gap: 4px; padding: 6px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  }
+  #find.open { display: flex; }
+  #find input {
+    font: inherit; font-size: 14px; width: 220px; padding: 4px 8px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  #find input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #find-count { font-size: 12px; color: var(--muted); min-width: 64px; text-align: center; }
+  #find button { padding: 3px 8px; }
+
+  #history {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 330px; z-index: 22;
+    display: none; flex-direction: column; background: var(--surface);
+    border-left: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  #history.open { display: flex; }
+  #history .head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+  }
+  #history .head h2 { font-size: 15px; margin: 0; }
+  #history .note { font-size: 12px; color: var(--muted); padding: 10px 14px 4px; margin: 0; }
+  #history ol { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  #history li { padding: 8px 10px; border-radius: 6px; }
+  #history li:hover { background: var(--surface-2); }
+  #history li .when { font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+  #history li .what { font-size: 12px; color: var(--muted); margin-top: 2px;
+                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #history li button { font-size: 12px; padding: 2px 8px; }
+  #history .empty { color: var(--muted); font-size: 13px; padding: 12px 14px; }
+  #ctx button {
+    display: block; width: 100%; text-align: left; border: 0; background: none;
+  }
+  #ctx button:hover { background: var(--surface-2); }
+  #ctx button kbd { float: right; margin-left: 16px; }
+  #ctx button.danger { color: var(--hot); }
+  #ctx hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+  #help table { border-collapse: collapse; }
+  #help td { padding: 2px 8px; }
+  #help td:first-child { text-align: right; white-space: nowrap; }
+  kbd {
+    font: 12px ui-monospace, monospace; background: var(--surface-2);
+    border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 5px;
+  }
+  #zoom {
+    position: absolute; left: 14px; bottom: 14px; display: flex; gap: 4px;
+    align-items: center;
+  }
+  #zoom span { font-size: 12px; color: var(--muted); min-width: 44px; text-align: center; }
+  #empty {
+    position: absolute; inset: 0; display: none; align-items: center;
+    justify-content: center; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<header>
+  <button id="toggle-sidebar" title="Show or hide the map list">☰</button>
+  <h1>Noggin</h1>
+  <button id="add-child" title="Add a child to the selected node (Tab)">+ Child</button>
+  <button id="add-sibling" title="Add a sibling to the selected node (Enter)">+ Sibling</button>
+  <button id="undo" title="Undo (Ctrl+Z)">↶</button>
+  <button id="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  <span class="spacer"></span>
+  <span id="status"></span>
+  <div class="menu" id="file-menu">
+    <button id="file-btn">Map ▾</button>
+    <div class="menu-items">
+      <button data-act="save-file">Save to file… <kbd>Ctrl+S</kbd></button>
+      <button data-act="open-file">Open file… <kbd>Ctrl+O</kbd></button>
+      <hr>
+      <button data-act="export-jpeg">Export as JPEG image</button>
+      <button data-act="export-md">Export as Markdown</button>
+      <hr>
+      <button data-act="history">Version history…</button>
+      <button data-act="tidy">Tidy layout (undo dragging)</button>
+      <button data-act="delete" class="danger">Delete this map</button>
+    </div>
+  </div>
+  <button id="help-btn" title="Keyboard shortcuts (?)">?</button>
+  <button id="theme" title="Switch between light and dark">Dark</button>
+  <input type="file" id="import-file" accept=".noggin,.json,.md,.markdown,.txt" hidden>
+</header>
+
+<aside id="sidebar">
+  <div class="top"><button id="new-map">+ New map</button></div>
+  <ul id="maps"></ul>
+</aside>
+
+<main id="canvas" tabindex="-1">
+  <div id="world"><svg id="edges" width="1" height="1"></svg></div>
+  <div id="empty">No maps yet. Create one with “+ New map”.</div>
+  <div id="zoom">
+    <button id="zoom-out" title="Zoom out (-)">−</button>
+    <span id="zoom-level">100%</span>
+    <button id="zoom-in" title="Zoom in (+)">+</button>
+    <button id="fit" title="Fit the map to the window (Home)">Fit</button>
+  </div>
+  <div id="ctx"></div>
+  <div id="find">
+    <input id="find-q" type="text" placeholder="Find in this map…" autocomplete="off">
+    <span id="find-count"></span>
+    <button id="find-prev" title="Previous match (Shift+Enter)">↑</button>
+    <button id="find-next" title="Next match (Enter)">↓</button>
+    <button id="find-close" title="Close (Esc)">×</button>
+  </div>
+  <div id="history">
+    <div class="head"><h2>Version history</h2><button id="history-close" title="Close (Esc)">×</button></div>
+    <p class="note">A copy is kept at most every 10 minutes while you edit, and before any big
+      delete. Restoring keeps the current map as a version too, so it can be undone from here.</p>
+    <ol id="history-list"></ol>
+  </div>
+  <div id="help">
+    <table>
+      <tr><td><kbd>Tab</kbd></td><td>add child</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>add sibling</td></tr>
+      <tr><td>Double-click a node</td><td>add child to it</td></tr>
+      <tr><td><kbd>F2</kbd> / type / click a selected node</td><td>edit text</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>new line while editing</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>stop editing</td></tr>
+      <tr><td><kbd>Del</kbd> / <kbd>Backspace</kbd> / right-click</td><td>delete node and its branch</td></tr>
+      <tr><td>Right-click</td><td>menu of everything you can do to a node</td></tr>
+      <tr><td><kbd>Space</kbd></td><td>collapse / expand</td></tr>
+      <tr><td>Arrow keys</td><td>move between nodes</td></tr>
+      <tr><td><kbd>Alt</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd></td><td>reorder among siblings</td></tr>
+      <tr><td>Drag a node</td><td>move it and its branch anywhere</td></tr>
+      <tr><td>…and drop it on another node</td><td>make it a child of that node</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>undo / redo</td></tr>
+      <tr><td>Drag background / scroll</td><td>pan</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+scroll / pinch / <kbd>+</kbd> <kbd>-</kbd></td><td>zoom</td></tr>
+      <tr><td><kbd>Home</kbd></td><td>fit to window</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>find</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>copy / cut / paste a branch (paste any text as nodes)</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>save to / open a .noggin file</td></tr>
+    </table>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var el = function (id) { return document.getElementById(id); };
+  var canvas = el("canvas"), world = el("world"), edges = el("edges");
+
+  // Branch colours: each first-level branch takes the next one, and every
+  // node below it inherits it.
+  var PALETTE = ["#d1495b", "#2e86ab", "#e29a2d", "#3a9d6a", "#8e5bbf",
+                 "#d16ba5", "#1b998b", "#c45f2c"];
+  var HGAP = 56, VGAP = 14;
+
+  // --- state -----------------------------------------------------------------
+
+  var maps = [];          // summaries for the sidebar
+  var doc = null;         // the open map: {id, title, root, updated}
+  var selectedId = null;
+  var editing = null;     // {id, isNew, before}
+  var view = { x: 0, y: 0, s: 1 };
+  var undoStack = [], redoStack = [];
+  var saveTimer = null, saveInFlight = false, savePending = false;
+  var index = {};         // id -> {node, parent, depth, side, color}
+  var boxes = {};         // id -> {x, y, w, h} (centre coordinates)
+
+  function uid() {
+    var a = new Uint8Array(6);
+    crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) {
+      return ("0" + b.toString(16)).slice(-2);
+    }).join("");
+  }
+
+  // --- api -------------------------------------------------------------------
+
+  function api(method, url, body) {
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) {
+      opts.body = JSON.stringify(body);
+      opts.headers["Content-Type"] = "application/json";
+    }
+    return fetch(url, opts).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data.error || r.statusText);
+        return data;
+      });
+    });
+  }
+
+  function setStatus(text, isError) {
+    el("status").textContent = text;
+    el("status").className = isError ? "error" : "";
+  }
+
+  function loadMaps() {
+    return api("GET", "/api/maps").then(function (data) {
+      maps = data.maps;
+      renderSidebar();
+    });
+  }
+
+  function openMap(id) {
+    return flushSave().then(function () {
+      return api("GET", "/api/map?id=" + encodeURIComponent(id));
+    }).then(function (d) {
+      doc = d;
+      selectedId = doc.root.id;
+      finder.matches = []; finder.idx = -1;
+      el("find").classList.remove("open");
+      closeHistory();
+      editing = null;
+      undoStack = []; redoStack = [];
+      try { localStorage.setItem("noggin-last", doc.id); } catch (e) {}
+      el("empty").style.display = "none";
+      render();
+      centreOn(doc.root.id);
+      renderSidebar();
+      setStatus("");
+    }).catch(function (e) { setStatus("Open failed: " + e.message, true); });
+  }
+
+  function createMap(root) {
+    var body = root ? { title: root.text, root: root } : { title: "Central idea" };
+    return flushSave().then(function () {
+      return api("POST", "/api/maps", body);
+    }).then(function (d) {
+      return loadMaps().then(function () { return openMap(d.id); });
+    }).then(function () {
+      if (!root) startEdit(doc.root.id, false, true);
+    }).catch(function (e) { setStatus("Create failed: " + e.message, true); return false; });
+  }
+
+  // Saves are debounced and never overlap: a change made while a save is in
+  // flight queues exactly one more.
+  function scheduleSave() {
+    setStatus("Unsaved");
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 400);
+  }
+
+  function save() {
+    clearTimeout(saveTimer); saveTimer = null;
+    if (!doc) return Promise.resolve();
+    if (saveInFlight) { savePending = true; return Promise.resolve(); }
+    saveInFlight = true;
+    setStatus("Saving…");
+    var target = doc;
+    target.title = target.root.text.split("\n")[0].trim() || "Untitled";
+    return api("PUT", "/api/map?id=" + target.id,
+               { title: target.title, root: target.root })
+      .then(function (r) {
+        target.updated = r.updated;
+        setStatus("Saved");
+        var m = maps.find(function (x) { return x.id === target.id; });
+        if (m) { m.title = target.title; m.updated = r.updated; m.nodes = Object.keys(index).length; }
+        renderSidebar();
+      })
+      .catch(function (e) { setStatus("Save failed: " + e.message, true); })
+      .then(function () {
+        saveInFlight = false;
+        if (savePending) { savePending = false; return save(); }
+      });
+  }
+
+  function flushSave() {
+    if (saveTimer) return save();
+    return Promise.resolve();
+  }
+
+  window.addEventListener("beforeunload", function () {
+    commitEdit();
+    if (saveTimer && doc) {
+      // Best effort; keepalive lets the request outlive the page.
+      fetch("/api/map?id=" + doc.id, {
+        method: "PUT", keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: doc.title, root: doc.root })
+      });
+    }
+  });
+
+  // --- undo ------------------------------------------------------------------
+
+  function snapshot() {
+    return { root: JSON.stringify(doc.root), sel: selectedId };
+  }
+
+  // Call before every change to the tree.
+  function checkpoint() {
+    undoStack.push(snapshot());
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack = [];
+  }
+
+  function restore(from, to) {
+    if (!doc || !from.length) return;
+    commitEdit();
+    to.push(snapshot());
+    var s = from.pop();
+    doc.root = JSON.parse(s.root);
+    render();
+    selectedId = index[s.sel] ? s.sel : doc.root.id;
+    paintSelection();
+    scheduleSave();
+  }
+
+  // --- tree helpers ----------------------------------------------------------
+
+  function buildIndex() {
+    index = {};
+    (function walk(node, parent, depth, side, color) {
+      index[node.id] = { node: node, parent: parent, depth: depth, side: side, color: color };
+      node.children = node.children || [];
+      node.children.forEach(function (c, i) {
+        var cs = side, cc = color;
+        if (depth === 0) {
+          cs = c.side === "left" ? "left" : "right";
+          cc = PALETTE[i % PALETTE.length];
+        }
+        walk(c, node, depth + 1, cs, cc);
+      });
+    })(doc.root, null, 0, null, null);
+  }
+
+  function isAncestor(aId, bId) {
+    for (var p = index[bId]; p; p = p.parent && index[p.parent.id]) {
+      if (p.node.id === aId) return true;
+    }
+    return false;
+  }
+
+  function descendantCount(node) {
+    return node.children.reduce(function (n, c) { return n + 1 + descendantCount(c); }, 0);
+  }
+
+  function rootSideForNewChild() {
+    var r = 0, l = 0;
+    doc.root.children.forEach(function (c) { if (c.side === "left") l++; else r++; });
+    return l < r ? "left" : "right";
+  }
+
+  // --- rendering -------------------------------------------------------------
+
+  var divs = {}, size = {};   // visible node elements and their measured sizes
+
+  function render() {
+    buildIndex();
+    Array.prototype.slice.call(world.querySelectorAll(".node, .fold"))
+      .forEach(function (n) { n.remove(); });
+
+    // Create every visible node so the browser can size it.
+    divs = {};
+    (function make(node) {
+      var info = index[node.id];
+      var d = document.createElement("div");
+      d.className = "node" + (info.depth === 0 ? " root" : info.depth === 1 ? " depth1" :
+                              info.depth >= 3 ? " depth3plus" : "");
+      d.dataset.id = node.id;
+      d.textContent = node.text;
+      if (info.color) d.style.setProperty("--branch", info.color);
+      world.appendChild(d);
+      divs[node.id] = d;
+      if (!node.collapsed) node.children.forEach(make);
+    })(doc.root);
+
+    size = {};
+    Object.keys(divs).forEach(function (id) {
+      size[id] = { w: divs[id].offsetWidth, h: divs[id].offsetHeight };
+    });
+    layout();
+    paintSelection();
+    applyView();
+  }
+
+  // Position the existing node elements and redraw edges and fold toggles.
+  // Cheap enough to run on every pointer move while a node is dragged.
+  function layout() {
+    world.querySelectorAll(".fold").forEach(function (f) { f.remove(); });
+
+    // Lay out each side of the root as a horizontal tree. A node dragged by
+    // hand keeps its offset (dx, dy) from that spot, and its branch moves
+    // with it because children are placed relative to their parent.
+    var heightCache = {};
+    function subtreeHeight(node) {
+      if (heightCache[node.id] !== undefined) return heightCache[node.id];
+      var h = size[node.id].h;
+      if (!node.collapsed && node.children.length) {
+        var kids = node.children.reduce(function (t, c) { return t + subtreeHeight(c); }, 0)
+                   + VGAP * (node.children.length - 1);
+        h = Math.max(h, kids);
+      }
+      return (heightCache[node.id] = h);
+    }
+    function placeKids(parent, kids, dir) {
+      var p = boxes[parent.id];
+      var total = kids.reduce(function (t, c) { return t + subtreeHeight(c); }, 0)
+                  + VGAP * Math.max(0, kids.length - 1);
+      var y = p.y - total / 2;
+      kids.forEach(function (c) {
+        var h = subtreeHeight(c), s = size[c.id];
+        boxes[c.id] = { x: p.x + dir * (p.w / 2 + HGAP + s.w / 2) + (c.dx || 0),
+                        y: y + h / 2 + (c.dy || 0), w: s.w, h: s.h };
+        if (!c.collapsed) placeKids(c, c.children, dir);
+        y += h + VGAP;
+      });
+    }
+    boxes = {};
+    boxes[doc.root.id] = { x: 0, y: 0, w: size[doc.root.id].w, h: size[doc.root.id].h };
+    if (!doc.root.collapsed) {
+      placeKids(doc.root, doc.root.children.filter(function (c) { return c.side !== "left"; }), 1);
+      placeKids(doc.root, doc.root.children.filter(function (c) { return c.side === "left"; }), -1);
+    }
+    // Hold still while a node is being dragged; sort out overlaps on drop.
+    if (!(drag && drag.mode === "node" && drag.moved)) resolveOverlaps();
+
+    // Position the nodes, draw edges and fold toggles. Edges and toggles face
+    // whichever way the child actually is, since a drag can move it across.
+    var paths = [];
+    Object.keys(divs).forEach(function (id) {
+      var b = boxes[id], d = divs[id], info = index[id], node = info.node;
+      d.style.left = (b.x - b.w / 2) + "px";
+      d.style.top = (b.y - b.h / 2) + "px";
+      if (info.parent) {
+        var p = boxes[info.parent.id];
+        var dir = b.x < p.x ? -1 : 1;
+        var x1 = p.x + dir * p.w / 2, y1 = p.y;
+        var x2 = b.x - dir * b.w / 2, y2 = b.y;
+        var mx = (x1 + x2) / 2;
+        paths.push('<path stroke="' + info.color + '" d="M' + x1 + "," + y1 +
+                   " C" + mx + "," + y1 + " " + mx + "," + y2 + " " + x2 + "," + y2 + '"/>');
+      }
+      if (node.children.length && info.depth > 0) {
+        var f = document.createElement("div");
+        f.className = "fold";
+        f.dataset.fold = id;
+        var pb = boxes[info.parent.id], fdir = b.x < pb.x ? -1 : 1;
+        f.style.left = (b.x + fdir * (b.w / 2 + 12) - 10) + "px";
+        f.style.top = (b.y - 10) + "px";
+        f.style.setProperty("--branch", info.color);
+        f.textContent = node.collapsed ? descendantCount(node) : "−";
+        f.title = node.collapsed ? "Expand" : "Collapse";
+        world.appendChild(f);
+      }
+    });
+    if (doc.root.collapsed && doc.root.children.length) {
+      // The root has no side, so its toggle sits underneath it.
+      var rb = boxes[doc.root.id], rf = document.createElement("div");
+      rf.className = "fold"; rf.dataset.fold = doc.root.id;
+      rf.style.left = (rb.x - 10) + "px"; rf.style.top = (rb.y + rb.h / 2 + 6) + "px";
+      rf.textContent = descendantCount(doc.root); rf.title = "Expand";
+      world.appendChild(rf);
+    }
+    edges.innerHTML = paths.join("");
+  }
+
+  // The tree layout never overlaps by itself, but a node dragged by hand
+  // keeps its place while branches around it grow. Walk the map in order and
+  // move any node that overlaps one already placed, with its whole branch,
+  // just far enough to clear it — away from whatever it hit. This is worked
+  // out afresh on every layout and never saved, so things settle back when
+  // space frees up.
+  function resolveOverlaps() {
+    var M = 6, GAP = VGAP;
+    var order = [];
+    (function walk(n) { order.push(n); if (!n.collapsed) n.children.forEach(walk); })(doc.root);
+    var placed = [boxes[doc.root.id]];
+    function hits(b) {
+      for (var i = 0; i < placed.length; i++) {
+        var p = placed[i];
+        if (Math.abs(b.x - p.x) < (b.w + p.w) / 2 + M &&
+            Math.abs(b.y - p.y) < (b.h + p.h) / 2 + M) return p;
+      }
+      return null;
+    }
+    function shiftBranch(n, dy) {
+      boxes[n.id].y += dy;
+      if (!n.collapsed) n.children.forEach(function (c) { shiftBranch(c, dy); });
+    }
+    for (var i = 1; i < order.length; i++) {
+      var node = order[i], b = boxes[node.id], dir = 0, p;
+      for (var guard = 0; guard < 500 && (p = hits(b)); guard++) {
+        if (!dir) dir = b.y < p.y ? -1 : 1;   // keep one direction: no ping-pong
+        shiftBranch(node, dir > 0 ? (p.y + p.h / 2 + GAP) - (b.y - b.h / 2)
+                                  : (p.y - p.h / 2 - GAP) - (b.y + b.h / 2));
+      }
+      placed.push(b);
+    }
+  }
+
+  function paintSelection() {
+    Array.prototype.forEach.call(world.querySelectorAll(".node.selected"), function (n) {
+      n.classList.remove("selected");
+    });
+    var d = nodeDiv(selectedId);
+    if (d) d.classList.add("selected");
+    Array.prototype.forEach.call(world.querySelectorAll(".node.match"), function (n) {
+      n.classList.remove("match", "match-current");
+    });
+    finder.matches.forEach(function (id, i) {
+      var m = nodeDiv(id);
+      if (m) m.classList.add("match");
+      if (m && i === finder.idx) m.classList.add("match-current");
+    });
+  }
+
+  function nodeDiv(id) {
+    return id ? world.querySelector('.node[data-id="' + id + '"]') : null;
+  }
+
+  function renderSidebar() {
+    var ul = el("maps");
+    ul.innerHTML = "";
+    maps.forEach(function (m) {
+      var li = document.createElement("li");
+      if (doc && m.id === doc.id) li.className = "active";
+      var t = document.createElement("span"); t.className = "t"; t.textContent = m.title;
+      var meta = document.createElement("span"); meta.className = "m";
+      meta.textContent = m.nodes + " node" + (m.nodes === 1 ? "" : "s") + " · " +
+                         new Date(m.updated).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+      li.appendChild(t); li.appendChild(meta);
+      li.addEventListener("click", function () { if (!doc || doc.id !== m.id) openMap(m.id); });
+      ul.appendChild(li);
+    });
+  }
+
+  // --- view: pan and zoom ----------------------------------------------------
+
+  function applyView() {
+    world.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.s + ")";
+    el("zoom-level").textContent = Math.round(view.s * 100) + "%";
+  }
+
+  function zoomAt(factor, cx, cy) {
+    var s = Math.min(3, Math.max(0.2, view.s * factor));
+    view.x = cx - (cx - view.x) * (s / view.s);
+    view.y = cy - (cy - view.y) * (s / view.s);
+    view.s = s;
+    applyView();
+  }
+
+  function centreOn(id) {
+    var b = boxes[id];
+    if (!b) return;
+    view.x = canvas.clientWidth / 2 - b.x * view.s;
+    view.y = canvas.clientHeight / 2 - b.y * view.s;
+    applyView();
+  }
+
+  function fit() {
+    var ids = Object.keys(boxes).filter(function (id) { return nodeDiv(id); });
+    if (!ids.length) return;
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    ids.forEach(function (id) {
+      var b = boxes[id];
+      x0 = Math.min(x0, b.x - b.w / 2 - 30); x1 = Math.max(x1, b.x + b.w / 2 + 30);
+      y0 = Math.min(y0, b.y - b.h / 2); y1 = Math.max(y1, b.y + b.h / 2);
+    });
+    var pad = 40, W = canvas.clientWidth, H = canvas.clientHeight;
+    view.s = Math.min(1.5, Math.max(0.2, Math.min((W - 2 * pad) / (x1 - x0), (H - 2 * pad) / (y1 - y0))));
+    view.x = W / 2 - (x0 + x1) / 2 * view.s;
+    view.y = H / 2 - (y0 + y1) / 2 * view.s;
+    applyView();
+  }
+
+  // Keep the selected node on screen after keyboard moves and additions.
+  function ensureVisible(id) {
+    var b = boxes[id];
+    if (!b) return;
+    var W = canvas.clientWidth, H = canvas.clientHeight, m = 40;
+    var left = view.x + (b.x - b.w / 2) * view.s, right = view.x + (b.x + b.w / 2) * view.s;
+    var top = view.y + (b.y - b.h / 2) * view.s, bottom = view.y + (b.y + b.h / 2) * view.s;
+    if (left < m) view.x += m - left; else if (right > W - m) view.x -= right - (W - m);
+    if (top < m) view.y += m - top; else if (bottom > H - m) view.y -= bottom - (H - m);
+    applyView();
+  }
+
+  // --- editing ---------------------------------------------------------------
+
+  function select(id) {
+    if (!index[id]) return;
+    selectedId = id;
+    paintSelection();
+    ensureVisible(id);
+  }
+
+  function startEdit(id, isNew, selectAll, initialText) {
+    commitEdit();
+    var d = nodeDiv(id);
+    if (!d) return;
+    selectedId = id;
+    paintSelection();
+    editing = { id: id, isNew: !!isNew, before: index[id].node.text };
+    d.classList.add("editing");
+    d.contentEditable = "plaintext-only";
+    if (d.contentEditable !== "plaintext-only") d.contentEditable = "true";
+    if (initialText !== undefined) d.textContent = initialText;
+    // The node changes size as soon as it is editable (the placeholder) and
+    // with every key typed. Lay the map out again each time, or a node on the
+    // left of the central idea grows rightwards into it.
+    refit(id);
+    d.addEventListener("input", function () { refit(id); });
+    d.focus();
+    var range = document.createRange();
+    range.selectNodeContents(d);
+    if (!selectAll) range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    ensureVisible(id);
+  }
+
+  function refit(id) {
+    var d = divs[id];
+    if (!d) return;
+    size[id] = { w: d.offsetWidth, h: d.offsetHeight };
+    layout();
+  }
+
+  // Finish editing. Returns true if the tree changed shape (a blank new node
+  // was dropped), so callers know the selection may have moved.
+  function commitEdit(cancel) {
+    if (!editing) return false;
+    var ed = editing;
+    editing = null;
+    var d = nodeDiv(ed.id), info = index[ed.id];
+    if (!d || !info) return false;
+    var text = cancel ? ed.before : d.innerText.replace(/\n+$/, "").trim();
+    d.contentEditable = "false";
+    d.classList.remove("editing");
+    canvas.focus({ preventScroll: true });
+
+    if (!text && ed.isNew && info.parent) {
+      // A new node left blank is discarded, along with its undo step.
+      var siblings = info.parent.children;
+      siblings.splice(siblings.indexOf(info.node), 1);
+      undoStack.pop();
+      selectedId = info.parent.id;
+      render();
+      scheduleSave();
+      return true;
+    }
+    if (!text) text = ed.before || "Idea";
+    if (text !== ed.before) {
+      // A new node's checkpoint already covers its text; edits get their own.
+      if (!ed.isNew) checkpoint();
+      info.node.text = text;
+      scheduleSave();
+    }
+    render();
+    return false;
+  }
+
+  // --- tree operations -------------------------------------------------------
+
+  function addChild() {
+    if (!doc) return;
+    commitEdit();
+    var parent = index[selectedId] ? index[selectedId].node : doc.root;
+    checkpoint();
+    var child = { id: uid(), text: "", children: [] };
+    if (parent === doc.root) child.side = rootSideForNewChild();
+    parent.collapsed = false;
+    parent.children.push(child);
+    render();
+    startEdit(child.id, true);
+  }
+
+  function addSibling() {
+    if (!doc) return;
+    commitEdit();
+    var info = index[selectedId];
+    if (!info || !info.parent) { addChild(); return; }
+    checkpoint();
+    var sib = { id: uid(), text: "", children: [] };
+    if (info.depth === 1) sib.side = info.node.side;
+    var kids = info.parent.children;
+    kids.splice(kids.indexOf(info.node) + 1, 0, sib);
+    render();
+    startEdit(sib.id, true);
+  }
+
+  function removeSelected() {
+    var info = index[selectedId];
+    if (!info || !info.parent) return;
+    checkpoint();
+    var gone = 1 + descendantCount(info.node);
+    var kids = info.parent.children, i = kids.indexOf(info.node);
+    kids.splice(i, 1);
+    // Land on a neighbour on the same side, else the parent.
+    var same = kids.filter(function (k) {
+      return info.depth !== 1 || (k.side === "left") === (info.node.side === "left");
+    });
+    var before = same.filter(function (k) { return kids.indexOf(k) < i; }).length;
+    var next = same.length ? same[Math.min(before, same.length - 1)] : info.parent;
+    selectedId = next.id;
+    render();
+    scheduleSave();
+    setTimeout(function () {
+      setStatus("Deleted " + (gone === 1 ? "1 node" : gone + " nodes") + " — Ctrl+Z to undo");
+    }, 1200);
+  }
+
+  function toggleFold(id) {
+    var node = index[id] && index[id].node;
+    if (!node || !node.children.length) return;
+    checkpoint();
+    node.collapsed = !node.collapsed;
+    if (node.collapsed && selectedId !== id && isAncestor(id, selectedId)) selectedId = id;
+    render();
+    scheduleSave();
+  }
+
+  function moveAmongSiblings(delta) {
+    var info = index[selectedId];
+    if (!info || !info.parent) return;
+    var kids = info.parent.children;
+    // Root children only swap with those on the same side.
+    var peers = kids.filter(function (k) {
+      return info.depth !== 1 || (k.side === "left") === (info.node.side === "left");
+    });
+    var pi = peers.indexOf(info.node), target = peers[pi + delta];
+    if (!target) return;
+    checkpoint();
+    var a = kids.indexOf(info.node), b = kids.indexOf(target);
+    kids[a] = target; kids[b] = info.node;
+    render();
+    scheduleSave();
+  }
+
+  function moveNode(id, newParentId, side) {
+    var info = index[id];
+    if (!info || !info.parent || id === newParentId || isAncestor(id, newParentId)) return;
+    var newParent = index[newParentId].node;
+    if (info.parent === newParent && !(newParent === doc.root && side !== (info.node.side || "right"))) return;
+    checkpoint();
+    var kids = info.parent.children;
+    kids.splice(kids.indexOf(info.node), 1);
+    delete info.node.side; delete info.node.dx; delete info.node.dy;
+    if (newParent === doc.root) info.node.side = side || "right";
+    newParent.collapsed = false;
+    newParent.children.push(info.node);
+    selectedId = id;
+    render();
+    scheduleSave();
+  }
+
+  // --- keyboard navigation ---------------------------------------------------
+
+  function navigate(key) {
+    var info = index[selectedId];
+    if (!info) { selectedId = doc.root.id; paintSelection(); return; }
+    var node = info.node, target = null;
+    var visibleKids = function (n, side) {
+      if (n.collapsed) return [];
+      return n === doc.root ? n.children.filter(function (c) { return (c.side === "left" ? "left" : "right") === side; })
+                            : n.children;
+    };
+    var middle = function (list) { return list[Math.floor((list.length - 1) / 2)]; };
+
+    if (key === "ArrowRight" || key === "ArrowLeft") {
+      var dirSide = key === "ArrowRight" ? "right" : "left";
+      if (info.depth === 0) target = middle(visibleKids(node, dirSide));
+      else if (info.side === dirSide) target = middle(visibleKids(node));
+      else target = info.parent;
+    } else if (info.parent) {
+      var peers = info.depth === 1 ? visibleKids(doc.root, info.side) : info.parent.children;
+      var i = peers.indexOf(node);
+      target = peers[i + (key === "ArrowDown" ? 1 : -1)];
+      if (!target) {
+        // Step to the nearest node above or below on screen instead.
+        var me = boxes[node.id], best = null, bestD = Infinity;
+        Object.keys(boxes).forEach(function (id) {
+          if (id === node.id || !nodeDiv(id)) return;
+          var b = boxes[id], dy = b.y - me.y;
+          if (key === "ArrowDown" ? dy <= 0 : dy >= 0) return;
+          var d = Math.abs(dy) + Math.abs(b.x - me.x) * 2;
+          if (d < bestD) { bestD = d; best = id; }
+        });
+        if (best) target = index[best].node;
+      }
+    }
+    if (target) select(target.id);
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target.id === "import-file") return;
+    var ctrl = e.ctrlKey || e.metaKey;
+
+    if (editing && ctrl && /^[sof]$/i.test(e.key)) commitEdit();
+    if (ctrl && e.key.toLowerCase() === "f" && doc) { e.preventDefault(); openFind(); return; }
+    if (editing) {
+      // Esc reverts an edit; on a brand-new node it keeps whatever was typed.
+      if (e.key === "Escape") { e.preventDefault(); commitEdit(!editing.isNew); return; }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!commitEdit()) addSibling(); return; }
+      if (e.key === "Tab") { e.preventDefault(); if (!commitEdit()) addChild(); return; }
+      return;
+    }
+    if (!doc || (e.target.tagName === "INPUT")) return;
+
+    if (ctrl && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? restore(redoStack, undoStack) : restore(undoStack, redoStack); return; }
+    if (ctrl && e.key.toLowerCase() === "y") { e.preventDefault(); restore(redoStack, undoStack); return; }
+    if (ctrl && e.key.toLowerCase() === "s") { e.preventDefault(); saveToFile(); return; }
+    if (ctrl && e.key.toLowerCase() === "o") { e.preventDefault(); el("import-file").click(); return; }
+    if (ctrl || e.altKey && !/^Arrow(Up|Down)$/.test(e.key)) return;
+
+    switch (e.key) {
+      case "Tab": e.preventDefault(); addChild(); return;
+      case "Enter": e.preventDefault(); addSibling(); return;
+      case "F2": e.preventDefault(); if (selectedId) startEdit(selectedId); return;
+      case "Delete": case "Backspace": e.preventDefault(); removeSelected(); return;
+      case " ": e.preventDefault(); if (selectedId) toggleFold(selectedId); return;
+      case "Escape":
+        el("help").classList.remove("open"); hideCtx(); closeHistory();
+        if (el("find").classList.contains("open")) closeFind();
+        return;
+      case "ArrowUp": case "ArrowDown":
+        e.preventDefault();
+        if (e.altKey) moveAmongSiblings(e.key === "ArrowUp" ? -1 : 1); else navigate(e.key);
+        return;
+      case "ArrowLeft": case "ArrowRight": e.preventDefault(); navigate(e.key); return;
+      case "+": case "=": zoomAt(1.2, canvas.clientWidth / 2, canvas.clientHeight / 2); return;
+      case "-": zoomAt(1 / 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2); return;
+      case "?": el("help").classList.toggle("open"); return;
+    }
+    if (e.key === "Home") { e.preventDefault(); fit(); return; }
+    // Any other printable key starts editing the selected node afresh.
+    if (e.key.length === 1 && selectedId) {
+      e.preventDefault();
+      startEdit(selectedId, false, false, e.key);
+    }
+  });
+
+  // --- mouse: select, edit, drag, pan, zoom -----------------------------------
+
+  var drag = null;      // {mode: "pan"|"node", ...}
+  var editTimer = null;  // pending click-to-edit on an already selected node
+
+  // --- find -----------------------------------------------------------------
+  //
+  // Matches every node, collapsed or not; stepping onto one hidden in a
+  // collapsed branch opens that branch.
+
+  var finder = { matches: [], idx: -1 };
+
+  function openFind() {
+    commitEdit();
+    el("find").classList.add("open");
+    el("find-q").focus();
+    el("find-q").select();
+    if (el("find-q").value) runFind();
+  }
+
+  function closeFind() {
+    el("find").classList.remove("open");
+    finder.matches = []; finder.idx = -1;
+    if (doc) paintSelection();
+    canvas.focus({ preventScroll: true });
+  }
+
+  function runFind() {
+    var q = el("find-q").value.trim().toLowerCase();
+    finder.matches = [];
+    if (q && doc) {
+      (function walk(n) {
+        if (n.text.toLowerCase().indexOf(q) >= 0) finder.matches.push(n.id);
+        n.children.forEach(walk);
+      })(doc.root);
+    }
+    finder.idx = finder.matches.length ? 0 : -1;
+    if (finder.idx >= 0) goToMatch(); else { paintSelection(); showFindCount(); }
+  }
+
+  function stepFind(d) {
+    var n = finder.matches.length;
+    if (!n) return;
+    finder.idx = (finder.idx + d + n) % n;
+    goToMatch();
+  }
+
+  function goToMatch() {
+    var id = finder.matches[finder.idx];
+    if (!index[id]) { runFind(); return; }
+    var opened = false;
+    for (var p = index[id].parent; p; p = index[p.id].parent) {
+      if (p.collapsed) { p.collapsed = false; opened = true; }
+    }
+    selectedId = id;
+    if (opened) { render(); scheduleSave(); } else paintSelection();
+    centreOn(id);
+    showFindCount();
+  }
+
+  function showFindCount() {
+    var n = finder.matches.length;
+    el("find-count").textContent = !el("find-q").value.trim() ? "" :
+      n ? (finder.idx + 1) + " of " + n : "No matches";
+  }
+
+  el("find-q").addEventListener("input", runFind);
+  el("find-q").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+    else if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); el("find-q").select(); }
+  });
+  el("find-prev").addEventListener("click", function () { stepFind(-1); });
+  el("find-next").addEventListener("click", function () { stepFind(1); });
+  el("find-close").addEventListener("click", closeFind);
+
+  // --- copy, cut and paste ----------------------------------------------------
+  //
+  // A copied branch goes to the system clipboard as a Markdown outline, so it
+  // pastes sensibly anywhere. Noggin also remembers the branch itself: if
+  // what is pasted is that same text, the original nodes come back exactly
+  // (multi-line text, collapsed branches). Any other text becomes one node
+  // per line, nested by indentation.
+
+  var clip = null;   // {text, nodes} — the last branch copied here
+
+  function branchOutline(node) {
+    var out = [];
+    (function walk(n, depth) {
+      out.push(new Array(depth + 1).join("  ") + "- " + n.text.replace(/\n/g, " "));
+      n.children.forEach(function (c) { walk(c, depth + 1); });
+    })(node, 0);
+    return out.join("\n") + "\n";
+  }
+
+  function plainCopy(node) {
+    var c = { text: node.text, children: node.children.map(plainCopy) };
+    if (node.collapsed) c.collapsed = true;
+    return c;
+  }
+
+  // Lines become nodes. Indentation (or "#" heading level) sets the nesting;
+  // bullets, numbers and [ ] checkboxes are stripped.
+  function parseOutline(text) {
+    var tops = [], stack = [{ indent: -Infinity, node: { children: tops } }];
+    text.split(/\r?\n/).forEach(function (line) {
+      if (!line.trim()) return;
+      var indent, t, h = line.match(/^\s*(#{1,6})\s+(.*)$/);
+      if (h) { indent = -100 + h[1].length; t = h[2]; }
+      else {
+        var m = line.match(/^(\s*)(?:[-*+•]\s+|\d+[.)]\s+)?(?:\[[ xX]\]\s+)?(.*)$/);
+        indent = m[1].replace(/\t/g, "    ").length; t = m[2];
+      }
+      if (!t.trim()) return;
+      var node = { text: t.trim(), children: [] };
+      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+      stack[stack.length - 1].node.children.push(node);
+      stack.push({ indent: indent, node: node });
+    });
+    return tops;
+  }
+
+  function takeBranch(cut) {
+    var info = index[selectedId];
+    if (!info) return null;
+    clip = { text: branchOutline(info.node), nodes: [plainCopy(info.node)] };
+    var n = 1 + descendantCount(info.node), what = n === 1 ? "1 node" : n + " nodes";
+    if (cut && info.parent) { removeSelected(); setTimeout(function () { setStatus("Cut " + what); }, 1300); }
+    else setStatus(cut ? "Copied " + what + " — the central idea can't be cut" : "Copied " + what);
+    return clip.text;
+  }
+
+  function pasteText(text) {
+    if (!doc || !text) return;
+    var nodes = clip && text === clip.text ? JSON.parse(JSON.stringify(clip.nodes))
+                                           : parseOutline(text);
+    if (!nodes.length) return;
+    var parent = index[selectedId] ? index[selectedId].node : doc.root;
+    checkpoint();
+    var count = 0;
+    nodes.forEach(function (n) {
+      freshIds(n);
+      count += 1 + descendantCount(n);
+      if (parent === doc.root) n.side = rootSideForNewChild();
+      parent.children.push(n);
+    });
+    parent.collapsed = false;
+    selectedId = nodes[0].id;
+    render();
+    ensureVisible(selectedId);
+    scheduleSave();
+    setTimeout(function () { setStatus("Pasted " + (count === 1 ? "1 node" : count + " nodes")); }, 1300);
+  }
+
+  // Ctrl+C / X / V arrive as clipboard events. Leave them alone while text is
+  // being edited, in a text box, or when text on the page is selected.
+  function ownsClipboard(e) {
+    if (!doc || editing) return false;
+    if (e.target.closest && e.target.closest("input, textarea, [contenteditable='true'], [contenteditable='plaintext-only']")) return false;
+    var sel = window.getSelection();
+    return !sel || sel.isCollapsed;
+  }
+  document.addEventListener("copy", function (e) {
+    if (!ownsClipboard(e) || !index[selectedId]) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", takeBranch(false));
+  });
+  document.addEventListener("cut", function (e) {
+    if (!ownsClipboard(e) || !index[selectedId]) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", takeBranch(true));
+  });
+  document.addEventListener("paste", function (e) {
+    if (!ownsClipboard(e)) return;
+    e.preventDefault();
+    pasteText(e.clipboardData.getData("text/plain"));
+  });
+
+  // The right-click menu has no clipboard event, so it uses the async API.
+  function copyFromMenu(cut) {
+    var text = takeBranch(cut);
+    if (text && navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {});
+  }
+  function pasteFromMenu() {
+    var fallback = function () {
+      if (clip) pasteText(clip.text); else setStatus("Use Ctrl+V to paste from other apps", true);
+    };
+    if (!navigator.clipboard || !navigator.clipboard.readText) { fallback(); return; }
+    navigator.clipboard.readText().then(function (t) { t ? pasteText(t) : fallback(); }, fallback);
+  }
+
+  // --- version history ---------------------------------------------------------
+
+  function closeHistory() { el("history").classList.remove("open"); }
+
+  function openHistory() {
+    if (!doc) return;
+    var list = el("history-list");
+    list.innerHTML = "";
+    el("history").classList.add("open");
+    flushSave().then(function () {
+      return api("GET", "/api/history?id=" + doc.id);
+    }).then(function (d) {
+      if (!d.versions.length) {
+        list.innerHTML = '<li class="empty">No earlier versions yet. They appear once a map has been edited for a while.</li>';
+        return;
+      }
+      d.versions.forEach(function (v) {
+        var li = document.createElement("li");
+        var when = document.createElement("div"); when.className = "when";
+        var label = document.createElement("span");
+        label.textContent = new Date(v.saved).toLocaleString([], { weekday: "short", day: "numeric",
+          month: "short", hour: "2-digit", minute: "2-digit" }) + " · " + v.nodes + " node" + (v.nodes === 1 ? "" : "s");
+        var b = document.createElement("button"); b.textContent = "Restore";
+        b.addEventListener("click", function () { restoreVersion(v); });
+        when.appendChild(label); when.appendChild(b);
+        var what = document.createElement("div"); what.className = "what";
+        what.textContent = v.title + (v.branches.length ? " — " + v.branches.join(", ") : "");
+        what.title = what.textContent;
+        li.appendChild(when); li.appendChild(what);
+        list.appendChild(li);
+      });
+    }).catch(function (e) { setStatus("History failed: " + e.message, true); });
+  }
+
+  function restoreVersion(v) {
+    var id = doc.id;
+    flushSave().then(function () {
+      return api("POST", "/api/restore?id=" + id + "&v=" + encodeURIComponent(v.version));
+    }).then(function () {
+      return openMap(id);
+    }).then(function () {
+      setStatus("Restored the version from " + new Date(v.saved).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }));
+      openHistory();
+    }).catch(function (e) { setStatus("Restore failed: " + e.message, true); });
+  }
+
+  el("history-close").addEventListener("click", closeHistory);
+
+  // --- right-click menu ------------------------------------------------------
+
+  function hideCtx() { el("ctx").classList.remove("open"); }
+
+  function showCtx(x, y, items) {
+    var m = el("ctx");
+    m.innerHTML = "";
+    items.forEach(function (it) {
+      if (it === "-") { m.appendChild(document.createElement("hr")); return; }
+      var b = document.createElement("button");
+      b.textContent = it.label;
+      if (it.key) { var k = document.createElement("kbd"); k.textContent = it.key; b.appendChild(k); }
+      if (it.danger) b.className = "danger";
+      b.addEventListener("click", function () { hideCtx(); it.run(); });
+      m.appendChild(b);
+    });
+    m.classList.add("open");
+    // Keep the whole menu on screen.
+    m.style.left = Math.min(x, window.innerWidth - m.offsetWidth - 8) + "px";
+    m.style.top = Math.min(y, window.innerHeight - m.offsetHeight - 8) + "px";
+  }
+
+  canvas.addEventListener("contextmenu", function (e) {
+    if (!doc || e.target.closest("#zoom, #help, #ctx, #find, #history")) return;
+    e.preventDefault();
+    var nd = e.target.closest(".node");
+    if (nd && nd.classList.contains("editing")) { e.stopPropagation(); hideCtx(); return; }
+    commitEdit();
+    if (!nd) {
+      showCtx(e.clientX, e.clientY, [
+        { label: "Add branch", run: function () { selectedId = doc.root.id; addChild(); } },
+        { label: "Paste as branch", key: "Ctrl+V", run: function () { selectedId = doc.root.id; pasteFromMenu(); } },
+        { label: "Fit to window", key: "Home", run: fit },
+        { label: "Find…", key: "Ctrl+F", run: openFind },
+      ]);
+      return;
+    }
+    var id = nd.dataset.id, info = index[id], node = info.node;
+    select(id);
+    var items = [{ label: "Add child", key: "Tab", run: addChild }];
+    if (info.parent) items.push({ label: "Add sibling", key: "Enter", run: addSibling });
+    items.push({ label: "Edit text", key: "F2", run: function () { startEdit(id, false, true); } });
+    if (node.children.length) {
+      items.push({ label: node.collapsed ? "Expand" : "Collapse", key: "Space",
+                   run: function () { toggleFold(id); } });
+    }
+    items.push("-", { label: "Copy", key: "Ctrl+C", run: function () { copyFromMenu(false); } });
+    if (info.parent) items.push({ label: "Cut", key: "Ctrl+X", run: function () { copyFromMenu(true); } });
+    items.push({ label: "Paste inside", key: "Ctrl+V", run: pasteFromMenu });
+    if (info.parent) {
+      var n = descendantCount(node);
+      items.push("-", { label: n ? "Delete with " + n + " below" : "Delete", key: "Del",
+                        danger: true, run: removeSelected });
+    }
+    showCtx(e.clientX, e.clientY, items);
+  });
+
+  // Any click elsewhere, scroll or resize closes the menu.
+  document.addEventListener("pointerdown", function (e) {
+    if (!e.target.closest("#ctx")) hideCtx();
+  }, true);
+  window.addEventListener("resize", hideCtx);
+  canvas.addEventListener("wheel", hideCtx);
+
+  canvas.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0 || e.target.closest("#ctx, #find, #history")) return;
+    clearTimeout(editTimer);
+    var fold = e.target.closest(".fold");
+    if (fold) { commitEdit(); toggleFold(fold.dataset.fold); return; }
+    var nd = e.target.closest(".node");
+    if (nd && nd.classList.contains("editing")) return;
+    if (e.target.closest("#zoom, #help")) return;
+    commitEdit();
+    if (nd && nd.dataset.id !== doc.root.id) {
+      var id = nd.dataset.id, node = index[id].node;
+      drag = { mode: "node", id: id, sx: e.clientX, sy: e.clientY, moved: false,
+               wasSelected: selectedId === id, dx0: node.dx || 0, dy0: node.dy || 0 };
+      select(id);
+    } else {
+      // The background, or the central idea: dragging either moves the view.
+      var rootId = nd ? nd.dataset.id : null, was = selectedId === rootId;
+      if (rootId) select(rootId);
+      drag = { mode: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y,
+               moved: false, rootId: rootId, wasSelected: was };
+      canvas.classList.add("panning");
+    }
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+
+  function branchDivs(id) {
+    var out = [];
+    (function walk(n) {
+      if (divs[n.id]) out.push(divs[n.id]);
+      if (!n.collapsed) n.children.forEach(walk);
+    })(index[id].node);
+    return out;
+  }
+
+  canvas.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+    if (drag.mode === "pan") {
+      drag.moved = true;
+      view.x = drag.vx + dx; view.y = drag.vy + dy;
+      applyView();
+      return;
+    }
+    if (!drag.moved) {
+      drag.moved = true;
+      // Snapshot before the first change, pushed onto undo only on drop.
+      drag.snap = snapshot();
+      drag.branch = branchDivs(drag.id);
+      drag.branch.forEach(function (d) { d.classList.add("dragging"); });
+    }
+    var node = index[drag.id].node;
+    node.dx = Math.round(drag.dx0 + dx / view.s);
+    node.dy = Math.round(drag.dy0 + dy / view.s);
+    layout();
+
+    // Over another node (not one in the dragged branch)? Offer it as the new parent.
+    var under = document.elementFromPoint(e.clientX, e.clientY);
+    var t = under && under.closest(".node");
+    var tid = t && t.dataset.id;
+    var ok = tid && tid !== drag.id && !isAncestor(drag.id, tid);
+    if (drag.target && drag.target !== t) drag.target.classList.remove("drop-target");
+    drag.target = ok ? t : null;
+    if (drag.target) drag.target.classList.add("drop-target");
+  });
+
+  function endDrag(e) {
+    if (!drag) return;
+    var d = drag;
+    drag = null;
+    canvas.classList.remove("panning");
+    if (!d.moved) {
+      if (d.mode === "pan" && !d.rootId) { selectedId = null; paintSelection(); }
+      // A plain click on a node that was already selected edits it — after a
+      // pause, so that a double-click can still add a child instead.
+      var clicked = d.id || d.rootId;
+      if (clicked && d.wasSelected) {
+        editTimer = setTimeout(function () { startEdit(clicked, false, true); }, 350);
+      }
+      return;
+    }
+    if (d.mode === "pan") return;
+
+    var node = index[d.id].node;
+    if (d.target) {
+      // Dropped on a node: move the branch under it. Put the offset back
+      // first so the undo step records the tree as it was before the drag.
+      node.dx = d.dx0; node.dy = d.dy0;
+      if (!node.dx) delete node.dx;
+      if (!node.dy) delete node.dy;
+      var tid = d.target.dataset.id, side;
+      if (tid === doc.root.id) {
+        // Dropped on the root: the side is whichever half it landed on.
+        var r = d.target.getBoundingClientRect();
+        side = e.clientX < r.left + r.width / 2 ? "left" : "right";
+      }
+      moveNode(d.id, tid, side);
+      render();
+      return;
+    }
+    // Dropped in open space: it stays where it was put.
+    undoStack.push(d.snap);
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack = [];
+    render();
+    scheduleSave();
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  canvas.addEventListener("dblclick", function (e) {
+    clearTimeout(editTimer);
+    // Pointer capture makes the canvas the event target, so look underneath.
+    var under = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+    if (!doc || under.closest(".fold, #zoom, #help, #find, #history")) return;
+    var nd = under.closest(".node");
+    if (nd && nd.classList.contains("editing")) return;
+    // Double-click a node to give it a new child; double-click empty space
+    // to add a branch to the central idea.
+    selectedId = nd ? nd.dataset.id : doc.root.id;
+    addChild();
+  });
+
+  canvas.addEventListener("wheel", function (e) {
+    if (e.target.closest("#history")) return;   // let the list scroll
+    e.preventDefault();
+    var r = canvas.getBoundingClientRect();
+    var unit = e.deltaMode === 1 ? 20 : 1;
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+wheel, and a touchpad pinch (which browsers report as ctrl+wheel).
+      zoomAt(Math.exp(-e.deltaY * unit * 0.0025), e.clientX - r.left, e.clientY - r.top);
+    } else {
+      // Plain wheel / two-finger scroll pans; Shift turns vertical into horizontal.
+      var dx = e.deltaX * unit, dy = e.deltaY * unit;
+      if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+      view.x -= dx; view.y -= dy;
+      applyView();
+    }
+  }, { passive: false });
+
+  // --- import / export -------------------------------------------------------
+
+  function download(name, data, type) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type: type }));
+    a.download = name;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  function slug() {
+    return (doc.title || "map").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "map";
+  }
+
+  // --- .noggin files ---------------------------------------------------------
+  //
+  // A .noggin file is the map as JSON with a format marker, so it can be told
+  // apart from any other JSON and opened again later. Where the browser has
+  // the File System Access API, the first save asks where to put the file and
+  // later saves in the same session write straight back to it. Brave ships
+  // with that API switched off, so there it is an ordinary download.
+
+  var fileHandles = {};   // map id -> FileSystemFileHandle, for this session
+
+  function nogginFile() {
+    return JSON.stringify({ format: "noggin", version: 1, title: doc.title,
+                            root: doc.root }, null, 1) + "\n";
+  }
+
+  function saveToFile() {
+    if (!doc) return;
+    commitEdit();
+    var text = nogginFile(), name = slug() + ".noggin";
+    if (!window.showSaveFilePicker) {
+      download(name, text, "application/json");
+      setStatus("Saved " + name + " to Downloads");
+      return;
+    }
+    var id = doc.id;
+    var pick = fileHandles[id] ? Promise.resolve(fileHandles[id]) :
+      window.showSaveFilePicker({ suggestedName: name, types: [{
+        description: "Noggin mind map", accept: { "application/json": [".noggin"] } }] });
+    pick.then(function (handle) {
+      fileHandles[id] = handle;
+      return handle.createWritable().then(function (w) {
+        return w.write(text).then(function () { return w.close(); });
+      }).then(function () { setStatus("Saved " + handle.name); });
+    }).catch(function (e) {
+      if (e.name !== "AbortError") setStatus("Save to file failed: " + e.message, true);
+    });
+  }
+
+  // --- JPEG export -----------------------------------------------------------
+  //
+  // Paints the map onto a canvas from the laid-out boxes and the nodes' own
+  // computed styles. Line breaks are read from the page rather than worked
+  // out again, so the text wraps exactly as it does on screen.
+
+  function textLines(div) {
+    var tn = div.firstChild;
+    if (!tn || tn.nodeType !== 3) return [];
+    var text = tn.data, range = document.createRange(), lines = [], cur = "", top = null;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (ch === "\n") { lines.push(cur); cur = ""; top = null; continue; }
+      range.setStart(tn, i); range.setEnd(tn, i + 1);
+      var r = range.getClientRects()[0];
+      if (r && top !== null && r.top - top > 2) { lines.push(cur); cur = ""; }
+      if (r && (top === null || r.top - top > 2)) top = r.top;
+      cur += ch;
+    }
+    lines.push(cur);
+    return lines.map(function (l) { return l.replace(/\s+$/, ""); });
+  }
+
+  function exportJpeg() {
+    var ids = Object.keys(divs);
+    var folds = Array.prototype.filter.call(world.querySelectorAll(".fold"), function (f) {
+      return /^\d+$/.test(f.textContent);   // collapsed counts only, not the "−" toggles
+    });
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    ids.forEach(function (id) {
+      var b = boxes[id];
+      x0 = Math.min(x0, b.x - b.w / 2); x1 = Math.max(x1, b.x + b.w / 2);
+      y0 = Math.min(y0, b.y - b.h / 2); y1 = Math.max(y1, b.y + b.h / 2);
+    });
+    folds.forEach(function (f) {
+      var fx = parseFloat(f.style.left), fy = parseFloat(f.style.top);
+      x0 = Math.min(x0, fx); x1 = Math.max(x1, fx + 20); y0 = Math.min(y0, fy); y1 = Math.max(y1, fy + 20);
+    });
+    var pad = 40, W = x1 - x0 + 2 * pad, H = y1 - y0 + 2 * pad;
+    // Twice screen resolution, scaled down for huge maps to stay within what
+    // a canvas can hold.
+    var scale = Math.min(2, 16000 / W, 16000 / H, Math.sqrt(100e6 / (W * H)));
+    var cv = document.createElement("canvas");
+    cv.width = Math.ceil(W * scale); cv.height = Math.ceil(H * scale);
+    var ctx = cv.getContext("2d");
+    var rootStyle = getComputedStyle(document.documentElement);
+    var css = function (v) { return rootStyle.getPropertyValue(v).trim(); };
+
+    ctx.fillStyle = css("--bg");   // JPEG has no transparency
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.scale(scale, scale);
+    ctx.translate(pad - x0, pad - y0);
+
+    ctx.lineWidth = 2.2; ctx.lineCap = "round";
+    ids.forEach(function (id) {
+      var info = index[id];
+      if (!info.parent) return;
+      var b = boxes[id], p = boxes[info.parent.id], dir = b.x < p.x ? -1 : 1;
+      var xa = p.x + dir * p.w / 2, xb = b.x - dir * b.w / 2, mx = (xa + xb) / 2;
+      ctx.strokeStyle = info.color;
+      ctx.beginPath(); ctx.moveTo(xa, p.y); ctx.bezierCurveTo(mx, p.y, mx, b.y, xb, b.y); ctx.stroke();
+    });
+
+    ids.forEach(function (id) {
+      var b = boxes[id], div = divs[id], st = getComputedStyle(div);
+      var bw = parseFloat(st.borderTopWidth), rad = parseFloat(st.borderTopLeftRadius);
+      var left = b.x - b.w / 2, top = b.y - b.h / 2;
+      ctx.beginPath();
+      ctx.roundRect(left + bw / 2, top + bw / 2, b.w - bw, b.h - bw, Math.max(0, rad - bw / 2));
+      ctx.fillStyle = st.backgroundColor; ctx.fill();
+      ctx.lineWidth = bw; ctx.strokeStyle = st.borderTopColor; ctx.stroke();
+
+      var fs = parseFloat(st.fontSize), lh = parseFloat(st.lineHeight) || fs * 1.4;
+      ctx.font = st.fontStyle + " " + st.fontWeight + " " + st.fontSize + " " + st.fontFamily;
+      ctx.fillStyle = st.color; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+      var tx = left + bw + parseFloat(st.paddingLeft), ty = top + bw + parseFloat(st.paddingTop);
+      textLines(div).forEach(function (line, i) { ctx.fillText(line, tx, ty + i * lh + lh / 2); });
+    });
+
+    folds.forEach(function (f) {
+      var st = getComputedStyle(f);
+      var cx = parseFloat(f.style.left) + 10, cy = parseFloat(f.style.top) + 10;
+      ctx.beginPath(); ctx.arc(cx, cy, 9, 0, 2 * Math.PI);
+      ctx.fillStyle = st.backgroundColor; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = st.borderTopColor; ctx.stroke();
+      ctx.font = st.fontWeight + " 11px " + st.fontFamily;
+      ctx.fillStyle = st.color; ctx.textAlign = "center";
+      ctx.fillText(f.textContent, cx, cy + 0.5);
+    });
+
+    cv.toBlob(function (blob) {
+      if (!blob) { setStatus("Export failed: map too large for an image", true); return; }
+      download(slug() + ".jpg", blob);
+      setStatus("Exported " + slug() + ".jpg");
+    }, "image/jpeg", 0.92);
+  }
+
+  function toMarkdown() {
+    var out = ["# " + doc.root.text.replace(/\n/g, " ")];
+    (function walk(node, depth) {
+      node.children.forEach(function (c) {
+        out.push(new Array(depth + 1).join("  ") + "- " + c.text.replace(/\n/g, " "));
+        walk(c, depth + 1);
+      });
+    })(doc.root, 0);
+    return out.join("\n") + "\n";
+  }
+
+  // Accepts a "# Title" line followed by a nested "- " list (what export
+  // writes), or a bare nested list whose first item becomes the root.
+  function fromMarkdown(text) {
+    var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var root = null, stack = [];
+    lines.forEach(function (line) {
+      var h = line.match(/^#+\s+(.*)$/);
+      if (h && !root) { root = { id: uid(), text: h[1].trim(), children: [] }; stack = [{ indent: -1, node: root }]; return; }
+      var m = line.match(/^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/);
+      if (!m) return;
+      var indent = m[1].replace(/\t/g, "    ").length;
+      var node = { id: uid(), text: m[2].trim(), children: [] };
+      if (!root) { root = node; stack = [{ indent: indent, node: root }]; return; }
+      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+      stack[stack.length - 1].node.children.push(node);
+      stack.push({ indent: indent, node: node });
+    });
+    return root;
+  }
+
+  function balanceSides(root) {
+    root.children.forEach(function (c, i) { c.side = i % 2 ? "left" : "right"; });
+    return root;
+  }
+
+  function freshIds(node) {
+    node.id = uid();
+    node.children = Array.isArray(node.children) ? node.children : [];
+    node.children.forEach(freshIds);
+    return node;
+  }
+
+  el("import-file").addEventListener("change", function () {
+    var f = this.files[0];
+    this.value = "";
+    if (!f) return;
+    f.text().then(function (text) {
+      var root;
+      try {
+        var data = JSON.parse(text);
+        root = freshIds(data.root || data);
+        if (!root.children.some(function (c) { return c.side; })) balanceSides(root);
+      } catch (e) {
+        root = fromMarkdown(text);
+        if (root) balanceSides(root);
+      }
+      if (!root || typeof root.text !== "string") { setStatus("Open: nothing recognisable in " + f.name, true); return; }
+      // Opening a file makes a new map from it; the file itself is not changed.
+      createMap(root).then(function (ok) { if (ok !== false) setStatus("Opened " + f.name); });
+    });
+  });
+
+  // --- chrome ----------------------------------------------------------------
+
+  el("file-btn").addEventListener("click", function (e) {
+    e.stopPropagation();
+    el("file-menu").classList.toggle("open");
+  });
+  document.addEventListener("click", function () { el("file-menu").classList.remove("open"); });
+  el("file-menu").querySelector(".menu-items").addEventListener("click", function (e) {
+    var btn = e.target.closest("button"), act = btn && btn.dataset.act;
+    el("file-menu").classList.remove("open");
+    if (act === "open-file") { el("import-file").click(); return; }
+    if (!doc) return;
+    commitEdit();
+    if (act === "history") { openHistory(); return; }
+    if (act === "tidy") {
+      checkpoint();
+      (function clear(n) { delete n.dx; delete n.dy; n.children.forEach(clear); })(doc.root);
+      render(); scheduleSave();
+    }
+    if (act === "export-md") download(slug() + ".md", toMarkdown(), "text/markdown");
+    if (act === "save-file") saveToFile();
+    if (act === "export-jpeg") exportJpeg();
+    if (act === "delete") {
+      if (!confirm("Delete “" + doc.title + "”? It is moved to the trash folder, not erased.")) return;
+      clearTimeout(saveTimer); saveTimer = null;
+      api("DELETE", "/api/map?id=" + doc.id).then(function () {
+        doc = null;
+        Array.prototype.slice.call(world.querySelectorAll(".node, .fold")).forEach(function (n) { n.remove(); });
+        edges.innerHTML = "";
+        return loadMaps();
+      }).then(function () {
+        if (maps.length) openMap(maps[0].id); else el("empty").style.display = "flex";
+      }).catch(function (e) { setStatus("Delete failed: " + e.message, true); });
+    }
+  });
+
+  el("new-map").addEventListener("click", function () { commitEdit(); createMap(); });
+  el("add-child").addEventListener("click", addChild);
+  el("add-sibling").addEventListener("click", addSibling);
+  el("undo").addEventListener("click", function () { restore(undoStack, redoStack); });
+  el("redo").addEventListener("click", function () { restore(redoStack, undoStack); });
+  el("zoom-in").addEventListener("click", function () { zoomAt(1.2, canvas.clientWidth / 2, canvas.clientHeight / 2); });
+  el("zoom-out").addEventListener("click", function () { zoomAt(1 / 1.2, canvas.clientWidth / 2, canvas.clientHeight / 2); });
+  el("fit").addEventListener("click", fit);
+  el("help-btn").addEventListener("click", function () { el("help").classList.toggle("open"); });
+  el("toggle-sidebar").addEventListener("click", function () {
+    document.body.classList.toggle("no-sidebar");
+    try { localStorage.setItem("noggin-sidebar", document.body.classList.contains("no-sidebar") ? "hidden" : "shown"); } catch (e) {}
+  });
+
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    el("theme").textContent = t === "dark" ? "Light" : "Dark";
+  }
+  el("theme").addEventListener("click", function () {
+    var next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    try { localStorage.setItem("noggin-theme", next); } catch (e) {}
+  });
+
+  // --- start -----------------------------------------------------------------
+
+  var last = null;
+  try {
+    setTheme(localStorage.getItem("noggin-theme") || "light");
+    if (localStorage.getItem("noggin-sidebar") === "hidden") document.body.classList.add("no-sidebar");
+    last = localStorage.getItem("noggin-last");
+  } catch (e) {}
+
+  loadMaps().then(function () {
+    if (!maps.length) { el("empty").style.display = "flex"; return; }
+    var pick = maps.find(function (m) { return m.id === last; }) || maps[0];
+    openMap(pick.id);
+  }).catch(function (e) { setStatus("Cannot reach the server: " + e.message, true); });
+})();
+</script>
+</body>
+</html>
